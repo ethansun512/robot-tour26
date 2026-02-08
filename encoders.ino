@@ -1,20 +1,31 @@
-#include <MT6701.h>
+#include <Wire.h>
 
-const int ENC_LEFT_PIN = A0;
-
-// Create the right encoder object
-MT6701 rightEnc;
+#define MT6701_ADDR 0x06
+#define MT6701_ANGLE_REG 0x03
 
 void initEncoders() {
-  // If the library needs Wire, it's already started in setup()
-  rightEnc.begin();
+  // nothing required for analog encoder
+  Serial.println("Encoders initialized");
 }
 
 void readEncoders(float &leftDeg, float &rightDeg) {
-  // Left: analog 0–1023 mapped to 0–360 degrees (basic test)
-  int rawLeft = analogRead(ENC_LEFT_PIN);
-  leftDeg = (rawLeft / 1023.0f) * 360.0f;
 
-  // Right: I2C MT6701 in degrees
-  rightDeg = rightEnc.getAngleDegrees();
+  // ---- LEFT encoder (analog) ----
+  int rawLeft = analogRead(A0);
+  leftDeg = (rawLeft / 1023.0) * 360.0;
+
+  // ---- RIGHT encoder (I2C MT6701) ----
+  Wire.beginTransmission(MT6701_ADDR);
+  Wire.write(MT6701_ANGLE_REG);
+  Wire.endTransmission(false);
+
+  Wire.requestFrom(MT6701_ADDR, 2);
+
+  if (Wire.available() == 2) {
+    uint16_t raw =
+      (Wire.read() << 8) | Wire.read();
+
+    raw &= 0x3FFF;  // 14-bit mask
+    rightDeg = raw * 360.0 / 16384.0;
+  }
 }

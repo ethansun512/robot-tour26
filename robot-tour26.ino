@@ -1,3 +1,4 @@
+/*
 #include <Wire.h>
 #include <MPU6050.h>
 
@@ -97,3 +98,4 @@ void loop() {
 
   delay(100);
 }
+*/
