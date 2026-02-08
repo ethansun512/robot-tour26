@@ -41,16 +41,16 @@ void setup() {
   // Now do other init
   scanI2C();
 
-  initMotors();
-  initEncoders();
-  initIMU();
-
-  waitForStartButton();
-
+  Serial.println("About to initMotors"); initMotors(); Serial.println("Done initMotors");
+  Serial.println("About to initEncoders"); initEncoders(); Serial.println("Done initEncoders");
+  Serial.println("About to initIMU"); initIMU(); Serial.println("Done initIMU");
   Serial.println("System Initialized");
+  Serial.println("About to waitForStartButton"); waitForStartButton(); Serial.println("Done wait");
+
 }
 
 void loop() {
+  
   setMotors(120, 120);
 
   float leftEncDeg = 0, rightEncDeg = 0;
