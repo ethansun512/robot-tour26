@@ -27,7 +27,7 @@ void setup() {
   Serial.begin(9600);
   delay(500); // give Serial time
 
-  pinMode(START_BUTTON_PIN, INPUT_PULLUP);   // ✅ must be before reading the pin
+  pinMode(START_BUTTON_PIN, INPUT_PULLUP);   // must be before reading the pin
 
   Serial.println("Booting...");
 
@@ -44,27 +44,23 @@ void setup() {
   Serial.println("About to initMotors"); initMotors(); Serial.println("Done initMotors");
   Serial.println("About to initEncoders"); initEncoders(); Serial.println("Done initEncoders");
   Serial.println("About to initIMU"); initIMU(); Serial.println("Done initIMU");
+  Serial.println("About to calibrate"); calibrateGyroZ(); Serial.println("Done calibration");
   Serial.println("System Initialized");
-  Serial.println("About to waitForStartButton"); waitForStartButton(); Serial.println("Done wait");
 
 }
 
+String program = "f50 l90 f30 r90 b20";
+
 void loop() {
-  
-  setMotors(120, 120);
 
-  float leftEncDeg = 0, rightEncDeg = 0;
-  float gyroZ = 0;
+  waitForStartButton();
 
-  readEncoders(leftEncDeg, rightEncDeg);
-  readIMU(gyroZ);
+  startRunTimer(30.0f);        // target total run time (seconds)
+  runProgramTimed(program);
 
-  Serial.print("L_Enc: ");
-  Serial.print(leftEncDeg, 1);
-  Serial.print(" deg | R_Enc: ");
-  Serial.print(rightEncDeg, 1);
-  Serial.print(" deg | GyroZ(rad/s): ");
-  Serial.println(gyroZ, 4);
+  Serial.print("Total time: ");
+  Serial.println(elapsedRunSec(), 3);
 
-  delay(100);
+  while(true); // stop after one run
+}
 }

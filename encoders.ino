@@ -10,11 +10,11 @@ void initEncoders() {
 
 void readEncoders(float &leftDeg, float &rightDeg) {
 
-  // ---- LEFT encoder (analog) ----
+  //left analog encoder
   int rawLeft = analogRead(A0);
   leftDeg = (rawLeft / 1023.0) * 360.0;
 
-  // ---- RIGHT encoder (I2C MT6701) ----
+  //right i2c encoder
   Wire.beginTransmission(MT6701_ADDR);
   Wire.write(MT6701_ANGLE_REG);
   Wire.endTransmission(false);
