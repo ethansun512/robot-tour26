@@ -1,6 +1,21 @@
-float g_gyroZ_bias = 0.0f;   // deg/s bias when sitting still
+// At top of motion.ino:
+static float g_totalDistError = 0.0f;  // cumulative error
 
-void calibrateGyroZ(unsigned long ms = 2000) {
+// ===== Encoder sign constants =====
+const float LEFT_SIGN  = -1.0f;   // left encoder counts backwards
+const float RIGHT_SIGN = +1.0f;   // right encoder counts forwards
+
+// ===== Prototypes so this tab can call other tabs =====
+void setMotors(int leftSpeed, int rightSpeed);
+void setMotorsSmart(int leftTarget, int rightTarget);
+
+void readEncoders(float &leftDeg, float &rightDeg);
+void readIMU(float &gyroZ);
+
+// ===== Global gyro bias =====
+float g_gyroZ_bias = 0.0f;   // deg/s bias when still
+
+void calibrateGyroZ(unsigned long ms) {
   Serial.println("Calibrating gyro Z... keep robot still");
 
   const int N = 200;
@@ -8,7 +23,7 @@ void calibrateGyroZ(unsigned long ms = 2000) {
 
   for (int i = 0; i < N; i++) {
     float gz = 0.0f;
-    readIMU(gz);          // gz should be deg/s
+    readIMU(gz);          // should be deg/s
     sum += gz;
     delay(ms / N);
   }
@@ -26,180 +41,258 @@ static float deltaWrappedDeg(float prevDeg, float nowDeg) {
   return d;
 }
 
+static void dbgEvery200ms(float lDist, float rDist, float headingDeg, int leftPWM, int rightPWM) {
+  static unsigned long last = 0;
+  if (millis() - last < 200) return;
+  last = millis();
+
+  Serial.print("lDist="); Serial.print(lDist, 1);
+  Serial.print(" rDist="); Serial.print(rDist, 1);
+  Serial.print(" head="); Serial.print(headingDeg, 2);
+  Serial.print(" Lpwm="); Serial.print(leftPWM);
+  Serial.print(" Rpwm="); Serial.println(rightPWM);
+}
+
+// ===================== MOVE FORWARD =====================
 void moveForwardCM(float targetCM) {
-  // ---- TUNE THESE ----
+  // ---- Tunables ----
   const float WHEEL_DIAMETER_CM = 6.0f;
-  const float WHEEL_CIRC_CM = 3.14159f * WHEEL_DIAMETER_CM;
+  const float WHEEL_CIRC_CM = PI * WHEEL_DIAMETER_CM;
 
-  const int BASE_PWM = 85;         // slower base speed
-  const int MAX_PWM  = 120;        // cap
+  const int MAX_PWM  = 120;
 
-  const float LEFT_SIGN  = -1.0f;  // you said left counts backwards
-  const float RIGHT_SIGN = +1.0f;
+  const int LEFT_BIAS = 8;          // boost weak left motor (0..20)
 
-  // Heading-hold gain: start small
-  // correctionPWM = KP * headingErrorDeg
-  const float KP_HEADING = 2.0f;   // try 1.0 to 4.0 range
-  // --------------------
+  // Correction gains
+  const float KP = 1.0f;
+  const float KI = 0.4f;
+  const float KENC = 30.0f;         // encoder balance gain (20..50)
 
-  // Encoder start (wrapped angles)
-  float lPrev = 0, rPrev = 0;
+  const unsigned long TIMEOUT_MS = 15000;
+  // ---------------
+
+  // Apply cumulative error compensation
+  float compensatedTarget = targetCM + (g_totalDistError * 0.3f);
+
+  // Start encoders
+  float lPrev=0, rPrev=0;
   readEncoders(lPrev, rPrev);
 
-  float lTotal = 0, rTotal = 0;
+  float lTotal=0, rTotal=0;
+  float lDist=0, rDist=0;  // Declare outside loop
 
-  // Heading estimate (degrees)
-  float headingDeg = 0.0f;   // we want to keep this near 0
+  // Heading integration
+  float headingDeg = 0.0f;
+  float headingInt = 0.0f;
   unsigned long lastT = millis();
 
   unsigned long t0 = millis();
-  const unsigned long TIMEOUT_MS = 15000;
 
   while (true) {
+    // --- time step ---
     unsigned long nowT = millis();
-    float dt = (nowT - lastT) / 1000.0f;  // seconds
+    float dt = (nowT - lastT) / 1000.0f;
     if (dt <= 0) dt = 0.001f;
     lastT = nowT;
 
-    // ----- IMU: integrate gyroZ to get heading change -----
-    float gyroZ = 0.0f;     // deg/s (expected)
+    // --- IMU integrate heading ---
+    float gyroZ = 0.0f;
     readIMU(gyroZ);
-    gyroZ -= g_gyroZ_bias;  // remove bias
+    gyroZ -= g_gyroZ_bias;
     headingDeg += gyroZ * dt;
 
-    // ----- Encoders: accumulate distance -----
-    float lNow = 0, rNow = 0;
+    // --- Encoders ---
+    float lNow=0, rNow=0;
     readEncoders(lNow, rNow);
 
     float dL = deltaWrappedDeg(lPrev, lNow);
     float dR = deltaWrappedDeg(rPrev, rNow);
-    lPrev = lNow;
-    rPrev = rNow;
+    lPrev = lNow; rPrev = rNow;
 
     lTotal += LEFT_SIGN  * dL;
     rTotal += RIGHT_SIGN * dR;
 
-    float lDist = (fabs(lTotal) / 360.0f) * WHEEL_CIRC_CM;
-    float rDist = (fabs(rTotal) / 360.0f) * WHEEL_CIRC_CM;
+    lDist = (fabs(lTotal) / 360.0f) * WHEEL_CIRC_CM;
+    rDist = (fabs(rTotal) / 360.0f) * WHEEL_CIRC_CM;
     float avgDist = 0.5f * (lDist + rDist);
 
-    // Stop conditions
-    if (avgDist >= targetCM) break;
-    if (millis() - t0 > TIMEOUT_MS) { Serial.println("TIMEOUT"); break; }
+    // --- stop conditions ---
+    if (avgDist >= compensatedTarget) break;
+    if (millis() - t0 > TIMEOUT_MS) { Serial.println("FWD TIMEOUT"); break; }
 
-    // ----- Heading hold control -----
-    // If headingDeg is positive, you rotated one direction; correct by differential PWM
-    int correction = (int)(KP_HEADING * headingDeg);
+    // --- brake-zone speed ---
+    float remaining = compensatedTarget - avgDist;
+    int base = 45;
+    if (remaining < 15) base = 40;
+    if (remaining < 8)  base = 34;
+    if (remaining < 3)  base = 28;
 
-    int leftPWM  = BASE_PWM - correction;
-    int rightPWM = BASE_PWM + correction;
+    // --- encoder balance correction ---
+    float distErr = rDist - lDist;     // if right traveled more, speed up left
+    int encCorr = (int)(KENC * distErr);
+    encCorr = constrain(encCorr, -25, 25);
+
+    // --- gyro PI correction ---
+    float errDeg = headingDeg;
+    if (fabs(errDeg) < 0.7f) errDeg = 0.0f;
+
+    headingInt += errDeg * dt;
+    headingInt = constrain(headingInt, -20.0f, 20.0f);
+
+    int gyroCorr = (int)(KP * errDeg + KI * headingInt);
+    gyroCorr = constrain(gyroCorr, -25, 25);
+
+    int totalCorr = gyroCorr + encCorr;
+    totalCorr = constrain(totalCorr, -35, 35);
+
+    // --- apply ---
+    int leftPWM  = base + LEFT_BIAS - totalCorr;
+    int rightPWM = base + totalCorr;
 
     leftPWM  = constrain(leftPWM,  -MAX_PWM, MAX_PWM);
     rightPWM = constrain(rightPWM, -MAX_PWM, MAX_PWM);
 
-    setMotors(leftPWM, rightPWM);
-
-    // Debug (optional)
-    // Serial.print("dist="); Serial.print(avgDist,1);
-    // Serial.print(" heading="); Serial.println(headingDeg,2);
-
+    setMotorsSmart(leftPWM, rightPWM);
     delay(10);
   }
 
+  // Track actual error for next move
+  float actualDist = 0.5f * (lDist + rDist);
+  g_totalDistError += (targetCM - actualDist);
+
+  // Aggressive brake
+  setMotors(-40, -40);
+  delay(30);
+  // Then active brake hold
+  setMotors(-10, -10);  
+  delay(100);
   setMotors(0, 0);
+  stopMotorsHard();
 }
 
+// ===================== MOVE BACKWARD =====================
 void moveBackwardCM(float targetCM) {
-
   const float WHEEL_DIAMETER_CM = 6.0f;
-  const float WHEEL_CIRC_CM = 3.14159f * WHEEL_DIAMETER_CM;
+  const float WHEEL_CIRC_CM = PI * WHEEL_DIAMETER_CM;
 
-  const int BASE_PWM = 80;        // slower backward
   const int MAX_PWM  = 120;
 
-  const float LEFT_SIGN  = -1.0f;   // keep same as forward
-  const float RIGHT_SIGN = +1.0f;
+  const int LEFT_BIAS = 8;
 
-  const float KP_HEADING = 2.0f;    // heading correction gain
+  const float KP = 1.0f;
+  const float KI = 0.4f;
+  const float KENC = 30.0f;
+
   const unsigned long TIMEOUT_MS = 15000;
 
-  // --- Initial encoder reading ---
-  float lPrev = 0, rPrev = 0;
+  // Apply cumulative error compensation
+  float compensatedTarget = targetCM + (g_totalDistError * 0.3f);
+
+  float lPrev=0, rPrev=0;
   readEncoders(lPrev, rPrev);
 
-  float lTotal = 0;
-  float rTotal = 0;
+  float lTotal=0, rTotal=0;
+  float lDist=0, rDist=0;  // Declare outside loop
 
   float headingDeg = 0.0f;
-
+  float headingInt = 0.0f;
   unsigned long lastT = millis();
   unsigned long t0 = millis();
 
   while (true) {
-
     unsigned long nowT = millis();
     float dt = (nowT - lastT) / 1000.0f;
     if (dt <= 0) dt = 0.001f;
     lastT = nowT;
 
-    // --- Gyro heading integration ---
     float gyroZ = 0.0f;
     readIMU(gyroZ);
     gyroZ -= g_gyroZ_bias;
     headingDeg += gyroZ * dt;
 
-    // --- Encoder unwrap accumulation ---
-    float lNow = 0, rNow = 0;
+    float lNow=0, rNow=0;
     readEncoders(lNow, rNow);
 
-    float dL = lNow - lPrev;
-    float dR = rNow - rPrev;
-
-    if (dL > 180.0f)  dL -= 360.0f;
-    if (dL < -180.0f) dL += 360.0f;
-    if (dR > 180.0f)  dR -= 360.0f;
-    if (dR < -180.0f) dR += 360.0f;
-
-    lPrev = lNow;
-    rPrev = rNow;
+    float dL = deltaWrappedDeg(lPrev, lNow);
+    float dR = deltaWrappedDeg(rPrev, rNow);
+    lPrev = lNow; rPrev = rNow;
 
     lTotal += LEFT_SIGN  * dL;
     rTotal += RIGHT_SIGN * dR;
 
-    float lDist = (fabs(lTotal) / 360.0f) * WHEEL_CIRC_CM;
-    float rDist = (fabs(rTotal) / 360.0f) * WHEEL_CIRC_CM;
+    lDist = (fabs(lTotal) / 360.0f) * WHEEL_CIRC_CM;
+    rDist = (fabs(rTotal) / 360.0f) * WHEEL_CIRC_CM;
     float avgDist = 0.5f * (lDist + rDist);
 
-    if (avgDist >= targetCM) break;
-    if (millis() - t0 > TIMEOUT_MS) break;
+    if (avgDist >= compensatedTarget) break;
+    if (millis() - t0 > TIMEOUT_MS) { Serial.println("BACK TIMEOUT"); break; }
 
-    // --- Heading correction ---
-    int correction = (int)(KP_HEADING * headingDeg);
+    float remaining = compensatedTarget - avgDist;
+    int base = 45;
+    if (remaining < 15) base = 40;
+    if (remaining < 8)  base = 34;
+    if (remaining < 3)  base = 28;
 
-    int leftPWM  = -BASE_PWM - correction;
-    int rightPWM = -BASE_PWM + correction;
+    float distErr = rDist - lDist;
+    int encCorr = (int)(KENC * distErr);
+    encCorr = constrain(encCorr, -25, 25);
+
+    float errDeg = headingDeg;
+    if (fabs(errDeg) < 0.7f) errDeg = 0.0f;
+
+    headingInt += errDeg * dt;
+    headingInt = constrain(headingInt, -20.0f, 20.0f);
+
+    int gyroCorr = (int)(KP * errDeg + KI * headingInt);
+    gyroCorr = constrain(gyroCorr, -25, 25);
+
+    int totalCorr = gyroCorr + encCorr;
+    totalCorr = constrain(totalCorr, -35, 35);
+
+    // backward = negative speed
+    int leftPWM  = -(base + LEFT_BIAS) + totalCorr;
+    int rightPWM = -base - totalCorr;
 
     leftPWM  = constrain(leftPWM,  -MAX_PWM, MAX_PWM);
     rightPWM = constrain(rightPWM, -MAX_PWM, MAX_PWM);
 
-    setMotors(leftPWM, rightPWM);
-
+    setMotorsSmart(leftPWM, rightPWM);
     delay(10);
   }
 
+  // Track actual error for next move
+  float actualDist = 0.5f * (lDist + rDist);
+  g_totalDistError += (targetCM - actualDist);
+
+  // Brake forward (opposite of backward motion)
+  setMotors(40, 40);
+  delay(30);
+  setMotors(10, 10);  
+  delay(100);
   setMotors(0, 0);
-  delay(200);
+  stopMotorsHard();
 }
 
+// ===================== TURNS =====================
 void turnLeftDeg(float targetDeg) {
-  const int TURN_PWM = 85;     // start slow
-  const float KP = 2.0f;       // heading correction (optional fine control)
+  delay(200);  // Let robot settle from previous move
+  
+  float lStart=0, rStart=0;
+  readEncoders(lStart, rStart);
+
   const unsigned long TIMEOUT_MS = 8000;
 
   float headingDeg = 0.0f;
-
   unsigned long lastT = millis();
   unsigned long t0 = millis();
+
+  // Hold position briefly
+  for(int i=0; i<50; i++) {
+    setMotors(-5, -5);  // Very light brake
+    delay(2);
+  }
+  setMotors(0, 0);
+  delay(50);
 
   while (true) {
     unsigned long nowT = millis();
@@ -210,31 +303,62 @@ void turnLeftDeg(float targetDeg) {
     float gyroZ = 0.0f;
     readIMU(gyroZ);
     gyroZ -= g_gyroZ_bias;
-
     headingDeg += gyroZ * dt;
 
     if (fabs(headingDeg) >= targetDeg) break;
-    if (millis() - t0 > TIMEOUT_MS) break;
+    if (millis() - t0 > TIMEOUT_MS) { Serial.println("TL TIMEOUT"); break; }
 
-    // Turn left in place:
-    // left backward, right forward
-    setMotors(-TURN_PWM, TURN_PWM);
+    float remaining = targetDeg - fabs(headingDeg);
+
+    int pwm = 85;
+    if (remaining < 30) pwm = 70;
+    if (remaining < 15) pwm = 55;
+    if (remaining < 6)  pwm = 40;
+
+    // Check for linear drift
+    float lNow=0, rNow=0;
+    readEncoders(lNow, rNow);
+    float lDrift = deltaWrappedDeg(lStart, lNow) * LEFT_SIGN;
+    float rDrift = deltaWrappedDeg(rStart, rNow) * RIGHT_SIGN;
+    float linearDrift = 0.5f * (lDrift + rDrift);
+    
+    if (fabs(linearDrift) > 3.0f) {
+      int brakePWM = (int)(linearDrift * 2.0f);
+      brakePWM = constrain(brakePWM, -15, 15);
+      setMotorsSmart(-pwm + brakePWM, pwm + brakePWM);
+    } else {
+      setMotorsSmart(-pwm, pwm);
+    }
 
     delay(5);
   }
 
+  setMotors(25, -25);
+  delay(40);
   setMotors(0, 0);
-  delay(200);   // small settle time
+  delay(150);
+  stopMotorsHard();
 }
 
 void turnRightDeg(float targetDeg) {
-  const int TURN_PWM = 85;
+  delay(200);  // Let robot settle from previous move
+  
+  float lStart=0, rStart=0;
+  readEncoders(lStart, rStart);
+  
   const unsigned long TIMEOUT_MS = 8000;
 
   float headingDeg = 0.0f;
-
   unsigned long lastT = millis();
   unsigned long t0 = millis();
+
+  // Hold position briefly
+  for(int i=0; i<50; i++) {
+    setMotors(-5, -5);  // Very light brake
+    delay(2);
+  }
+  setMotors(0, 0);
+  delay(50);
 
   while (true) {
     unsigned long nowT = millis();
@@ -245,19 +369,39 @@ void turnRightDeg(float targetDeg) {
     float gyroZ = 0.0f;
     readIMU(gyroZ);
     gyroZ -= g_gyroZ_bias;
-
     headingDeg += gyroZ * dt;
 
     if (fabs(headingDeg) >= targetDeg) break;
-    if (millis() - t0 > TIMEOUT_MS) break;
+    if (millis() - t0 > TIMEOUT_MS) { Serial.println("TR TIMEOUT"); break; }
 
-    // Turn right in place:
-    // left forward, right backward
-    setMotors(TURN_PWM, -TURN_PWM);
+    float remaining = targetDeg - fabs(headingDeg);
+
+    int pwm = 85;
+    if (remaining < 30) pwm = 70;
+    if (remaining < 15) pwm = 55;
+    if (remaining < 6)  pwm = 40;
+
+    // Check for linear drift
+    float lNow=0, rNow=0;
+    readEncoders(lNow, rNow);
+    float lDrift = deltaWrappedDeg(lStart, lNow) * LEFT_SIGN;
+    float rDrift = deltaWrappedDeg(rStart, rNow) * RIGHT_SIGN;
+    float linearDrift = 0.5f * (lDrift + rDrift);
+    
+    if (fabs(linearDrift) > 3.0f) {
+      int brakePWM = (int)(linearDrift * 2.0f);
+      brakePWM = constrain(brakePWM, -15, 15);
+      setMotorsSmart(pwm + brakePWM, -pwm + brakePWM);
+    } else {
+      setMotorsSmart(pwm, -pwm);
+    }
 
     delay(5);
   }
 
+  setMotors(-25, 25);
+  delay(40);
   setMotors(0, 0);
-  delay(200);
+  delay(150);
+  stopMotorsHard();
 }

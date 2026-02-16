@@ -1,4 +1,14 @@
+float g_targetRunSec = 0.0f;
+unsigned long g_runStartMs = 0;
 
+void startRunTimer(float targetSeconds) {
+  g_targetRunSec = targetSeconds;
+  g_runStartMs = millis();
+}
+
+float elapsedRunSec() {
+  return (millis() - g_runStartMs) / 1000.0f;
+}
 
 bool isCmdLetter(char c) {
   return (c=='f' || c=='b' || c=='l' || c=='r' || c=='p');
@@ -14,9 +24,10 @@ int countCommands(const String &cmd) {
 }
 
 void runProgramTimed(String cmd) {
-
   int totalCmds = countCommands(cmd);
   int executed = 0;
+  
+  float timePerCmd = g_targetRunSec / (float)totalCmds;
 
   int i = 0;
   while (i < cmd.length()) {
@@ -27,30 +38,42 @@ void runProgramTimed(String cmd) {
     char action = cmd[i];
     i++;
 
-    // read number after letter (supports decimals too)
+    // read number after letter
     String numberStr = "";
     while (i < cmd.length() && (isDigit(cmd[i]) || cmd[i]=='.')) {
       numberStr += cmd[i];
       i++;
     }
+
+    if (numberStr.length() == 0) {
+      Serial.print("Missing number after command: ");
+      Serial.println(action);
+      continue;
+    }
+
     float value = numberStr.toFloat();
 
-    // Execute
+    unsigned long cmdStart = millis();
+
     switch (action) {
       case 'f': moveForwardCM(value); break;
       case 'b': moveBackwardCM(value); break;
       case 'l': turnLeftDeg(value); break;
       case 'r': turnRightDeg(value); break;
-      case 'p': delay((unsigned long)value); break; // p500 means pause 500 ms
+      case 'p': delay((unsigned long)value); break; // p500 means pause 500ms
       default:
-        Serial.print("Unknown command: "); Serial.println(action);
+        Serial.print("Unknown command: ");
+        Serial.println(action);
         break;
     }
 
-    executed++;
-    int remainingSteps = totalCmds - executed;
+    // Wait to match target timing
+    unsigned long cmdElapsed = millis() - cmdStart;
+    unsigned long targetCmdTime = (unsigned long)(timePerCmd * 1000.0f);
+    if (cmdElapsed < targetCmdTime) {
+      delay(targetCmdTime - cmdElapsed);
+    }
 
-    // Smart timing wait (adjusts if something ran slow/fast)
-    smartInterStepWait(remainingSteps);
+    executed++;
   }
 }

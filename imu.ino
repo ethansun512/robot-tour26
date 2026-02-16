@@ -63,10 +63,10 @@ void readIMU(float &gyroZ) {
 
   int16_t gzRaw = 0;
   if (Wire.available() == 2) {
-    gzRaw = (int16_t)((Wire.read() << 8) | Wire.read());
+    gzRaw = (int16_t)((Wire.read() << 8) | Wire.read());  // ✅ Read into gzRaw, not a temp variable
   }
 
   // For ±250 dps, sensitivity is 131 LSB/(deg/s)
   float gz_dps = (float)gzRaw / 131.0f;
-  gyroZ = gz_dps * 0.0174532925f; // deg/s -> rad/s
+  gyroZ = gz_dps; // deg/s
 }

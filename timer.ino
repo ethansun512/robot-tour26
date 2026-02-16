@@ -1,4 +1,4 @@
-float g_targetRunSec = 0.0f;
+/*float g_targetRunSec = 0.0f;
 unsigned long g_runStartMs = 0;
 
 void startRunTimer(float targetSeconds) {
@@ -32,3 +32,4 @@ void smartInterStepWait(int remainingSteps) {
 
   if (waitMs > 0) delay(waitMs);
 }
+*/
