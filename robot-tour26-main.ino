@@ -7,8 +7,11 @@ void initMotors();
 void initEncoders();
 void initIMU();
 void scanI2C();
+void setMotors(int leftSpeed, int rightSpeed);
 
 void calibrateGyroZ(unsigned long ms = 2000);
+void resetDistanceError();  // ✅ Add this line
+
 
 void startRunTimer(float targetSeconds);
 float elapsedRunSec();
@@ -46,22 +49,12 @@ void loop() {
 
   waitForStartButton();
 
-  startRunTimer(30.0f);       // target run time (seconds)
-  runProgramTimed(program);
+  resetDistanceError();
 
+  startRunTimer(30.0f);        // target run time (seconds)
+  runProgramTimed(program);
+  
   Serial.print("Total time: ");
   Serial.println(elapsedRunSec(), 3);
-/*
-  setMotors(60, 60);   // should drive forward slowly
-  delay(2000);
 
-  setMotors(0, 0);
-  delay(1000);
-
-  setMotors(-60, -60); // should drive backward
-  delay(2000);
-
-  setMotors(0, 0);
-  delay(2000);
-*/
 }
