@@ -106,17 +106,20 @@ void runProgramTimed(const char* cmd) {
 
     executed++;
 
-    unsigned long cmdElapsed  = millis() - cmdStart;
-    unsigned long targetCmdMs = (unsigned long)(timePerCmd * 1000.0f);
-    if (cmdElapsed < targetCmdMs) {
-      delay(targetCmdMs - cmdElapsed);
-    } else {
-      Serial.print(F("WARNING: overran by "));
-      Serial.print(cmdElapsed - targetCmdMs);
-      Serial.println(F(" ms"));
+
+    // Only pad timing between commands, not after the last one
+    if (executed < totalCmds) {
+      unsigned long cmdElapsed  = millis() - cmdStart;
+      unsigned long targetCmdMs = (unsigned long)(timePerCmd * 1000.0f);
+      if (cmdElapsed < targetCmdMs) {
+        delay(targetCmdMs - cmdElapsed);
+      } else {
+        Serial.print(F("WARNING: overran by "));
+        Serial.print(cmdElapsed - targetCmdMs);
+        Serial.println(F(" ms"));
+      }
     }
   }
-
   Serial.print(F("Done. "));
   Serial.print(executed);
   Serial.print(F("/"));

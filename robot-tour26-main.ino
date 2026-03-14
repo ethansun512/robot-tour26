@@ -22,18 +22,21 @@ void waitForStartButton() {
   Serial.println(F("Press START button to begin"));
   Serial.println(F("================================="));
   
-  // First, wait for button to be RELEASED (if it was pressed)
-  while (digitalRead(START_BUTTON_PIN) == HIGH) { }
+  // Wait for button to be released first (in case it's held down)
+  while (digitalRead(START_BUTTON_PIN) == LOW) { }
   delay(50);
   
-  // Now wait for button to be PRESSED
-  while (digitalRead(START_BUTTON_PIN) == LOW) { }
+  // Now wait for button to be pressed
+  while (digitalRead(START_BUTTON_PIN) == HIGH) { }
   delay(200); // debounce
   
-  Serial.println("Starting!");
+  Serial.println(F("Starting!"));
 }
-
-const char* program = "fn50 rn90";   // example
+//first start - 38
+//last back - 13
+//const char* program = "fn38 ln90 fn100 rn90 fn100 rn90 fn50 ln90 fn100 rn180 fn150 ln90 fn100 ln90 fn50 b13";   // example
+const char* program = "fn38 fn50 rn90 fn50 ln90 fn50 b13";
+//const char* program = "f38 fn50 ln90 fn50 ln90 fn50 rn90 fn50 rn90 fn100 rn90 fn50 ln90 fn100 rn90 fn50 rn90 fn100 ln90 fn50 b13"
 
 void setup() {
   Serial.begin(9600);
@@ -49,7 +52,7 @@ void setup() {
   initEncoders();
   initIMU();
 
-  calibrateGyroZ(2000);
+  calibrateGyroZ(4000);
 
   Serial.println(F("Ready."));
 }
@@ -60,7 +63,7 @@ void loop() {
 
   resetDistanceError();
 
-  startRunTimer(5.0f);        // target run time (seconds)
+  startRunTimer(30.0f);        // target run time (seconds)
   runProgramTimed(program);
   
   Serial.print(F("Total time: "));
