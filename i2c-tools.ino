@@ -1,7 +1,7 @@
 #include <Wire.h>
 
 void scanI2C() {
-  Serial.println("I2C scan starting...");
+  Serial.println(F("I2C scan starting..."));
 
   int count = 0;
   for (byte addr = 1; addr < 127; addr++) {
@@ -17,12 +17,12 @@ void scanI2C() {
   }
 
   if (count == 0) {
-    Serial.println("No I2C devices found!");
-    Serial.println("Check: SDA=A4, SCL=A5, common GND, 3.3V power.");
+    Serial.println(F("No I2C devices found!"));
+    Serial.println(F("Check: SDA=A4, SCL=A5, common GND, 3.3V power."));
   } else {
-    Serial.print("Total I2C devices found: ");
+    Serial.print(F("Total I2C devices found: "));
     Serial.println(count);
   }
 
-  Serial.println("I2C scan done.\n");
+  Serial.println(F("I2C scan done.\n"));
 }

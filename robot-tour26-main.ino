@@ -15,16 +15,25 @@ void resetDistanceError();  // ✅ Add this line
 
 void startRunTimer(float targetSeconds);
 float elapsedRunSec();
-void runProgramTimed(String cmd);
+void runProgramTimed(const char* cmd);
 
 void waitForStartButton() {
-  Serial.println("Waiting for start button (D2 -> GND)...");
+  Serial.println(F("================================="));
+  Serial.println(F("Press START button to begin"));
+  Serial.println(F("================================="));
+  
+  // First, wait for button to be RELEASED (if it was pressed)
   while (digitalRead(START_BUTTON_PIN) == HIGH) { }
+  delay(50);
+  
+  // Now wait for button to be PRESSED
+  while (digitalRead(START_BUTTON_PIN) == LOW) { }
   delay(200); // debounce
-  Serial.println("Start!");
+  
+  Serial.println("Starting!");
 }
 
-String program = "f8 f50";   // example
+const char* program = "fn50 rn90";   // example
 
 void setup() {
   Serial.begin(9600);
@@ -42,7 +51,7 @@ void setup() {
 
   calibrateGyroZ(2000);
 
-  Serial.println("Ready.");
+  Serial.println(F("Ready."));
 }
 
 void loop() {
@@ -51,10 +60,11 @@ void loop() {
 
   resetDistanceError();
 
-  startRunTimer(30.0f);        // target run time (seconds)
+  startRunTimer(5.0f);        // target run time (seconds)
   runProgramTimed(program);
   
-  Serial.print("Total time: ");
+  Serial.print(F("Total time: "));
   Serial.println(elapsedRunSec(), 3);
+
 
 }

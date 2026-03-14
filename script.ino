@@ -1,9 +1,11 @@
+// ================== program.ino ==================
+
 float g_targetRunSec = 0.0f;
 unsigned long g_runStartMs = 0;
 
 void startRunTimer(float targetSeconds) {
   g_targetRunSec = targetSeconds;
-  g_runStartMs = millis();
+  g_runStartMs   = millis();
 }
 
 float elapsedRunSec() {
@@ -11,69 +13,113 @@ float elapsedRunSec() {
 }
 
 bool isCmdLetter(char c) {
-  return (c=='f' || c=='b' || c=='l' || c=='r' || c=='p');
+  return (c == 'f' || c == 'b' || c == 'l' || c == 'r' || c == 'p');
 }
 
-// Count how many commands exist in the string (for timing)
-int countCommands(const String &cmd) {
+int countCommands(const char* cmd) {
   int count = 0;
-  for (int i = 0; i < cmd.length(); i++) {
+  for (int i = 0; cmd[i] != '\0'; i++) {
     if (isCmdLetter(cmd[i])) count++;
   }
   return count;
 }
 
-void runProgramTimed(String cmd) {
+void runProgramTimed(const char* cmd) {
   int totalCmds = countCommands(cmd);
-  int executed = 0;
-  
+  if (totalCmds == 0) {
+    Serial.println(F("runProgramTimed: no commands found."));
+    return;
+  }
+
   float timePerCmd = g_targetRunSec / (float)totalCmds;
-
+  int executed = 0;
   int i = 0;
-  while (i < cmd.length()) {
 
-    while (i < cmd.length() && cmd[i] == ' ') i++;
-    if (i >= cmd.length()) break;
+  while (cmd[i] != '\0') {
+
+    // Skip whitespace
+    while (cmd[i] == ' ') i++;
+    if (cmd[i] == '\0') break;
 
     char action = cmd[i];
     i++;
 
-    // read number after letter
-    String numberStr = "";
-    while (i < cmd.length() && (isDigit(cmd[i]) || cmd[i]=='.')) {
-      numberStr += cmd[i];
+    // Read optional bottle modifier
+    if (cmd[i] == 'b' || cmd[i] == 'n') {
+      g_hasBottle = (cmd[i] == 'b');
       i++;
+      Serial.print(g_hasBottle ? F("[BOTTLE] ") : F("[EMPTY]  "));
     }
 
-    if (numberStr.length() == 0) {
-      Serial.print("Missing number after command: ");
+    // Read number into buffer
+    char numberBuf[8];
+    int j = 0;
+    while ((isDigit(cmd[i]) || cmd[i] == '.') && j < 7) {
+      numberBuf[j++] = cmd[i++];
+    }
+    numberBuf[j] = '\0';
+
+    if (j == 0) {
+      Serial.print(F("Missing number after: "));
       Serial.println(action);
       continue;
     }
 
-    float value = numberStr.toFloat();
+    float value = atof(numberBuf);
+
+    // Encoder health check
+    if (action != 'p' && !rightEncoderHealthy()) {
+      Serial.println(F("ABORT: Right encoder failed."));
+      setMotors(0, 0);
+      stopMotorsHard();
+      return;
+    }
 
     unsigned long cmdStart = millis();
 
     switch (action) {
-      case 'f': moveForwardCM(value); break;
-      case 'b': moveBackwardCM(value); break;
-      case 'l': turnLeftDeg(value); break;
-      case 'r': turnRightDeg(value); break;
-      case 'p': delay((unsigned long)value); break; // p500 means pause 500ms
+      case 'f':
+        Serial.print(F("CMD fwd ")); Serial.print(value); Serial.println(F(" cm"));
+        moveForwardCM(value);
+        break;
+      case 'b':
+        Serial.print(F("CMD back ")); Serial.print(value); Serial.println(F(" cm"));
+        moveBackwardCM(value);
+        break;
+      case 'l':
+        Serial.print(F("CMD left ")); Serial.print(value); Serial.println(F(" deg"));
+        turnLeftDeg(value);
+        break;
+      case 'r':
+        Serial.print(F("CMD right ")); Serial.print(value); Serial.println(F(" deg"));
+        turnRightDeg(value);
+        break;
+      case 'p':
+        Serial.print(F("CMD pause ")); Serial.print(value); Serial.println(F(" ms"));
+        delay((unsigned long)value);
+        break;
       default:
-        Serial.print("Unknown command: ");
+        Serial.print(F("Unknown cmd: "));
         Serial.println(action);
         break;
     }
 
-    // Wait to match target timing
-    unsigned long cmdElapsed = millis() - cmdStart;
-    unsigned long targetCmdTime = (unsigned long)(timePerCmd * 1000.0f);
-    if (cmdElapsed < targetCmdTime) {
-      delay(targetCmdTime - cmdElapsed);
-    }
-
     executed++;
+
+    unsigned long cmdElapsed  = millis() - cmdStart;
+    unsigned long targetCmdMs = (unsigned long)(timePerCmd * 1000.0f);
+    if (cmdElapsed < targetCmdMs) {
+      delay(targetCmdMs - cmdElapsed);
+    } else {
+      Serial.print(F("WARNING: overran by "));
+      Serial.print(cmdElapsed - targetCmdMs);
+      Serial.println(F(" ms"));
+    }
   }
+
+  Serial.print(F("Done. "));
+  Serial.print(executed);
+  Serial.print(F("/"));
+  Serial.print(totalCmds);
+  Serial.println(F(" cmds executed."));
 }

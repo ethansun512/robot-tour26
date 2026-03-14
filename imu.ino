@@ -28,7 +28,7 @@ static void i2cWrite8(uint8_t addr, uint8_t reg, uint8_t val) {
 void initIMU() {
   // Read identity
   uint8_t who = i2cRead8(MPU_ADDR, REG_WHO_AM_I);
-  Serial.print("MPU WHO_AM_I = 0x");
+  Serial.print(F("MPU WHO_AM_I = 0x"));
   Serial.println(who, HEX);
 
   // Wake up (chip starts in sleep)
@@ -42,10 +42,10 @@ void initIMU() {
   // Basic sanity check (if reads aren't bogus)
   if (who != 0xFF && who != 0x00) {
     imuOK = true;
-    Serial.println("IMU init OK");
+    Serial.println(F("IMU init OK"));
   } else {
     imuOK = false;
-    Serial.println("ERROR: IMU WHO_AM_I read failed");
+    Serial.println(F("ERROR: IMU WHO_AM_I read failed"));
   }
 }
 
