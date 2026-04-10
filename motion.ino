@@ -22,6 +22,7 @@ struct MotionProfile {
   int   basePWM;
   int   maxPWM;
   float   leftBias;
+  float leftBiasBack;
   float kp;
   float ki;
   float kenc;
@@ -37,8 +38,9 @@ struct MotionProfile {
 const MotionProfile PROFILE_EMPTY = {
   .basePWM       = 90,
   .maxPWM        = 110,
-  .leftBias      = -1.5f,
-  .kp            = 0.4f,
+  .leftBias      = 0.3f, // > = more : < = less
+  .leftBiasBack  = 3.0f,
+  .kp            = 0.2f,
   .ki            = 0.0f,
   .kenc          = 0.0f,
   .turnPWM       = 42,
@@ -47,13 +49,14 @@ const MotionProfile PROFILE_EMPTY = {
   .turnPWMFinal  = 38,
   .turnExitEarly = 12.0f,
   .kickPWM       = 120,
-  .kickMs        = 70,
+  .kickMs        = 40,
 };
 
 const MotionProfile PROFILE_BOTTLE = {
   .basePWM       = 110,
   .maxPWM        = 120,
   .leftBias      = 1,
+  .leftBiasBack  = 3.0f,
   .kp            = 0.5f,
   .ki            = 0.0f,
   .kenc          = 0.0f,
@@ -187,9 +190,9 @@ void moveForwardCM(float targetCM) {
   float actualDist = 0.5f * (lDist + rDist);
   g_totalDistError += (targetCM - actualDist);
 
-  setMotors(-BRAKE_PWM_HARD, -BRAKE_PWM_HARD);  // was -BRAKE_PWM_HARD + 12, symmetric now
+  setMotors(-BRAKE_PWM_HARD + 3, -BRAKE_PWM_HARD);  // was -BRAKE_PWM_HARD + 12, symmetric now
   delay(BRAKE_MS_HARD);
-  setMotors(-BRAKE_PWM_HOLD, -BRAKE_PWM_HOLD);  // was -BRAKE_PWM_HOLD + 5
+  setMotors(-BRAKE_PWM_HOLD + 1, -BRAKE_PWM_HOLD);  // was -BRAKE_PWM_HOLD + 5
   delay(BRAKE_MS_HOLD);
   setMotors(0, 0);
   resetRamp();
@@ -267,9 +270,9 @@ void moveBackwardCM(float targetCM) {
     gyroCorr      = constrain(gyroCorr, -25, 25);
     int totalCorr = constrain(gyroCorr + encCorr, -15, 15);
 
-    const int BACK_BIAS = 3;  // positive = speed up left going backward
-    int leftPWM = constrain(-(base - BACK_BIAS) - totalCorr, -P.maxPWM, P.maxPWM);
-    int rightPWM = constrain(-base + totalCorr,                -P.maxPWM, P.maxPWM);
+    const int BACK_BIAS = 2;  // positive = speed up left going backward
+    int leftPWM  = constrain(-(base - P.leftBiasBack) - totalCorr, -P.maxPWM, P.maxPWM);
+    int rightPWM = constrain(-base + totalCorr,                     -P.maxPWM, P.maxPWM);
 
     setMotorsSmart(leftPWM, rightPWM);
     delay(10);
@@ -279,6 +282,8 @@ void moveBackwardCM(float targetCM) {
   delay(BRAKE_MS_HARD);
   setMotors(BRAKE_PWM_HOLD, BRAKE_PWM_HOLD);
   delay(BRAKE_MS_HOLD);
+  setMotors(0, -8);
+  delay(40);
   setMotors(0, 0);
   resetRamp();
   stopMotorsHard();
@@ -353,7 +358,7 @@ static void turnDeg(float targetDeg, int direction) {
     delay(5);
   }
 
-  setMotors(direction * 20, -direction * 20);
+  setMotors(direction * 1, -direction * 1);
   delay(60);
   setMotors(0, 0);
   delay(250);
