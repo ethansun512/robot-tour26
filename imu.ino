@@ -32,7 +32,7 @@ void initIMU() {
   Serial.println(who, HEX);
 
   // Wake up (chip starts in sleep)
-  i2cWrite8(MPU_ADDR, REG_PWR_MGMT_1, 0x00);
+  i2cWrite8(MPU_ADDR, REG_PWR_MGMT_1, 0x01);
   delay(50);
 
   // Gyro full scale ±250 dps
