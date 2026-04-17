@@ -30,7 +30,7 @@ const int BIAS_SETTLE_MS = 150;
 
 // Wheel dimensions — CALIBRATE by running fn100 and measuring physical distance.
 // If robot goes 103cm instead of 100cm, set to 6.9 * 100/103 = 6.70.
-const float WHEEL_DIAMETER_CM = 6.9f;
+const float WHEEL_DIAMETER_CM = 3.25f;
 const float WHEEL_CIRC_CM     = PI * WHEEL_DIAMETER_CM;
 
 struct MotionProfile {
@@ -56,14 +56,14 @@ const MotionProfile PROFILE_DRIVE = {
   20.0f, 4.0f, 2.0f, 200,
   0.0f, 3.0f,
   0.2f, 0.0f, 0.3f,
-  42, 40, 38, 38, 12.0f,
+  48, 45, 42, 42, 12.0f,
   100, 40
 };
 
 const MotionProfile PROFILE_TURN_EMPTY = {
   20.0f, 4.0f, 2.0f, 200, 0.0f, 3.0f, 0.2f, 0.0f, 0.0f,
-  50, 42, 35, 30, 2.0f,
-  100, 30
+  50, 45, 40, 38, 0.0f,
+  70, 20 
 };
 
 const MotionProfile PROFILE_TURN_BOTTLE = {
@@ -142,7 +142,7 @@ void moveForwardCM(float targetCM) {
   const MotionProfile &P = PROFILE_DRIVE;
   const unsigned long TIMEOUT_MS = 5000;
 
-  const int BASE_PWM = 70;
+  const int BASE_PWM = 65;
   const float KP_HEAD = 2.0f;
   const float KD_HEAD = 0.0f;
 
@@ -246,7 +246,7 @@ void moveBackwardCM(float targetCM) {
   const MotionProfile &P = PROFILE_DRIVE;
   const unsigned long TIMEOUT_MS = 5000;
 
-  const int BASE_PWM = 70;
+  const int BASE_PWM = 65;
   const float KP_HEAD = 5.0f;
   const float KD_HEAD = 0.3f;
 
