@@ -3,11 +3,9 @@
 #define MT6701_ADDR    0x06
 #define MT6701_ANGLE_REG 0x03
 
-// FIX 5: track right encoder health so motion functions can react
 static bool rightEncoderOK = true;
 
 void initEncoders() {
-  // Probe the right encoder on startup
   Wire.beginTransmission(MT6701_ADDR);
   byte err = Wire.endTransmission();
   rightEncoderOK = (err == 0);
@@ -19,25 +17,18 @@ void initEncoders() {
   }
 }
 
-// Returns true if the last right-encoder read succeeded
 bool rightEncoderHealthy() {
   return rightEncoderOK;
 }
 
-// NOTE: raw degrees are returned without LEFT_SIGN / RIGHT_SIGN applied.
-// Callers in motion.ino are responsible for applying those sign constants.
 void readEncoders(float &leftDeg, float &rightDeg) {
-
-  // Left — analog encoder
-  // In readEncoders()
   int rawLeft = 0;
-  for (int i = 0; i < 16; i++) rawLeft += analogRead(A0);  // was 4
+  for (int i = 0; i < 16; i++) rawLeft += analogRead(A0);
   rawLeft /= 16;
   leftDeg = (rawLeft / 1023.0f) * 360.0f;
 
-  // Right — I2C encoder
   if (!rightEncoderOK) {
-    rightDeg = 0.0f;  // Already flagged at init; caller can check rightEncoderHealthy()
+    rightDeg = 0.0f;
     return;
   }
 
@@ -46,7 +37,6 @@ void readEncoders(float &leftDeg, float &rightDeg) {
   byte err = Wire.endTransmission(false);
 
   if (err != 0) {
-    // FIX 5: flag the failure rather than silently returning 0
     rightEncoderOK = false;
     rightDeg = 0.0f;
     Serial.println(F("ERROR: Right encoder I2C read failed!"));

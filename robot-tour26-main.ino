@@ -8,8 +8,10 @@ void initIMU();
 void scanI2C();
 void setMotors(int leftSpeed, int rightSpeed);
 
-void calibrateGyroZ(unsigned long ms = 2000);
+void calibrateGyroZ(unsigned long ms);
+void refreshGyroBias(int samples);
 void resetDistanceError();
+void setPose(float x, float y, float facingDeg);
 
 void startRunTimer(float targetSeconds);
 float elapsedRunSec();
@@ -35,7 +37,7 @@ void waitForStartButton() {
 const char* program = "fn50 rn90 fn50 bn50 ln90 bn50";
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
   delay(500);
 
   pinMode(START_BUTTON_PIN, INPUT_PULLUP);
@@ -47,8 +49,7 @@ void setup() {
   initMotors();
   initEncoders();
   initIMU();
-  delay(2000);
-  calibrateGyroZ(4000);
+  delay(500);
 
   Serial.println(F("Ready."));
 }
@@ -57,13 +58,12 @@ void loop() {
   waitForStartButton();
 
   resetDistanceError();
-  g_posX      = 0.0f;
-  g_posY      = 0.0f;
-  g_facingDeg = 0.0f;
+  setPose(0.0f, 0.0f, 0.0f);
 
+  delay(2000);
   calibrateGyroZ(3000);
 
-  startRunTimer(15.0f);
+  startRunTimer(30.0f);
   runProgramTimed(program);
 
   Serial.print(F("Total time: ")); Serial.println(elapsedRunSec(), 3);

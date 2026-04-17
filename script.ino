@@ -16,6 +16,10 @@ bool isCmdLetter(char c) {
   return (c == 'f' || c == 'b' || c == 'l' || c == 'r' || c == 'p');
 }
 
+bool isMotionCmd(char c) {
+  return (c == 'f' || c == 'b' || c == 'l' || c == 'r');
+}
+
 int countCommands(const char* cmd) {
   int count = 0;
   int i = 0;
@@ -23,14 +27,14 @@ int countCommands(const char* cmd) {
     while (cmd[i] == ' ') i++;
     if (cmd[i] == '\0') break;
     if (isCmdLetter(cmd[i])) {
+      char action = cmd[i];
       count++;
       i++;
-      // Skip optional bottle/empty modifier
-      if (cmd[i] == 'b' || cmd[i] == 'n') i++;
-      // Skip number
+      // Only motion commands accept bottle/empty modifier
+      if (isMotionCmd(action) && (cmd[i] == 'b' || cmd[i] == 'n')) i++;
       while (isDigit(cmd[i]) || cmd[i] == '.') i++;
     } else {
-      i++;  // skip unknown char
+      i++;
     }
   }
   return count;
@@ -48,25 +52,22 @@ void runProgramTimed(const char* cmd) {
   int i = 0;
 
   while (cmd[i] != '\0') {
-
-    // Skip whitespace
     while (cmd[i] == ' ') i++;
     if (cmd[i] == '\0') break;
 
     char action = cmd[i];
     i++;
 
-    // Read optional bottle modifier
-    if (cmd[i] == 'b' || cmd[i] == 'n') {
+    // Only motion commands accept bottle/empty modifier
+    if (isMotionCmd(action) && (cmd[i] == 'b' || cmd[i] == 'n')) {
       g_hasBottle = (cmd[i] == 'b');
       i++;
       Serial.print(g_hasBottle ? F("[BOTTLE] ") : F("[EMPTY]  "));
     }
 
-    // Read number into buffer
-    char numberBuf[8];
+    char numberBuf[12];
     int j = 0;
-    while ((isDigit(cmd[i]) || cmd[i] == '.') && j < 7) {
+    while ((isDigit(cmd[i]) || cmd[i] == '.') && j < 11) {
       numberBuf[j++] = cmd[i++];
     }
     numberBuf[j] = '\0';
@@ -79,7 +80,6 @@ void runProgramTimed(const char* cmd) {
 
     float value = atof(numberBuf);
 
-    // Encoder health check
     if (action != 'p' && !rightEncoderHealthy()) {
       Serial.println(F("ABORT: Right encoder failed."));
       setMotors(0, 0);
@@ -118,8 +118,6 @@ void runProgramTimed(const char* cmd) {
 
     executed++;
 
-
-    // Only pad timing between commands, not after the last one
     if (executed < totalCmds) {
       unsigned long cmdElapsed  = millis() - cmdStart;
       unsigned long targetCmdMs = (unsigned long)(timePerCmd * 1000.0f);

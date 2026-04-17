@@ -1,9 +1,8 @@
 #include <Wire.h>
 
-static const uint8_t MPU_ADDR = 0x68;   // you confirmed this in the scan
+static const uint8_t MPU_ADDR = 0x68;
 static bool imuOK = false;
 
-// MPU registers (MPU6050/MPU6500 compatible for basics)
 static const uint8_t REG_WHO_AM_I     = 0x75;
 static const uint8_t REG_PWR_MGMT_1   = 0x6B;
 static const uint8_t REG_GYRO_CONFIG  = 0x1B;
@@ -26,20 +25,16 @@ static void i2cWrite8(uint8_t addr, uint8_t reg, uint8_t val) {
 }
 
 void initIMU() {
-  // Read identity
   uint8_t who = i2cRead8(MPU_ADDR, REG_WHO_AM_I);
   Serial.print(F("MPU WHO_AM_I = 0x"));
   Serial.println(who, HEX);
 
-  // Wake up (chip starts in sleep)
   i2cWrite8(MPU_ADDR, REG_PWR_MGMT_1, 0x01);
   delay(50);
 
-  // Gyro full scale ±250 dps
   i2cWrite8(MPU_ADDR, REG_GYRO_CONFIG, 0x00);
   delay(10);
 
-  // Basic sanity check (if reads aren't bogus)
   if (who != 0xFF && who != 0x00) {
     imuOK = true;
     Serial.println(F("IMU init OK"));
@@ -49,7 +44,6 @@ void initIMU() {
   }
 }
 
-// Returns gyroZ in deg (so your print label is true)
 void readIMU(float &gyroZ) {
   if (!imuOK) {
     gyroZ = 0.0f;
@@ -63,10 +57,9 @@ void readIMU(float &gyroZ) {
 
   int16_t gzRaw = 0;
   if (Wire.available() == 2) {
-    gzRaw = (int16_t)((Wire.read() << 8) | Wire.read());  // ✅ Read into gzRaw, not a temp variable
+    gzRaw = (int16_t)((Wire.read() << 8) | Wire.read());
   }
 
-  // For ±250 dps, sensitivity is 131 LSB/(deg/s)
   float gz_dps = (float)gzRaw / 131.0f;
-  gyroZ = gz_dps; // deg/s
+  gyroZ = gz_dps;
 }

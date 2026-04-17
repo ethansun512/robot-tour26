@@ -3,6 +3,12 @@
 static float g_totalDistError = 0.0f;
 bool g_hasBottle = false;
 
+// ===== Coordinate system =====
+// Convention: 0 = forward, 90 = right, CW+
+// If physical X ends up mirrored after testing (robot goes +X when should be -X),
+// flip X_AXIS_SIGN to -1.0f.
+const float X_AXIS_SIGN = +1.0f;
+
 float g_posX      = 0.0f;
 float g_posY      = 0.0f;
 float g_facingDeg = 0.0f;
@@ -17,7 +23,15 @@ const float RIGHT_SIGN = +1.0f;
 const int BRAKE_PWM_HARD = 20;
 const int BRAKE_MS_HARD  = 20;
 const int BRAKE_PWM_HOLD = 5;
-const int BRAKE_MS_HOLD  = 30;
+const int BRAKE_MS_HOLD  = 60;
+
+// Settle time before gyro bias refresh — lets residual motion die out
+const int BIAS_SETTLE_MS = 150;
+
+// Wheel dimensions — CALIBRATE by running fn100 and measuring physical distance.
+// If robot goes 103cm instead of 100cm, set to 6.9 * 100/103 = 6.70.
+const float WHEEL_DIAMETER_CM = 6.9f;
+const float WHEEL_CIRC_CM     = PI * WHEEL_DIAMETER_CM;
 
 struct MotionProfile {
   float targetVelCmS;
@@ -38,13 +52,11 @@ struct MotionProfile {
   int   kickMs;
 };
 
-// NOTE: leftBias reduced — was masking the sign issue.
-// If robot still drifts right after testing, check gyro sign first.
 const MotionProfile PROFILE_DRIVE = {
   20.0f, 4.0f, 2.0f, 200,
-  0.0f, 3.0f,          // leftBias = 0 for now; tune AFTER sign is verified
+  0.0f, 3.0f,
   0.2f, 0.0f, 0.3f,
-  42, 40, 38, 38, 4.0f,  // turnExitEarly dropped 12 -> 4
+  42, 40, 38, 38, 12.0f,
   100, 40
 };
 
@@ -60,6 +72,7 @@ const MotionProfile PROFILE_TURN_BOTTLE = {
   140, 50
 };
 
+// ===== Prototypes =====
 void setMotors(int leftSpeed, int rightSpeed);
 void setMotorsSmart(int leftTarget, int rightTarget);
 void setMotorsRamp(int leftTarget, int rightTarget);
@@ -86,6 +99,27 @@ void calibrateGyroZ(unsigned long ms) {
   Serial.println(g_gyroZ_bias, 6);
 }
 
+// Quick stationary bias refresh — call before each move to keep gyro accurate
+void refreshGyroBias(int samples) {
+  float sum = 0.0f;
+  for (int i = 0; i < samples; i++) {
+    float gz = 0.0f;
+    readIMU(gz);
+    sum += gz;
+    delay(2);
+  }
+  g_gyroZ_bias = sum / samples;
+}
+
+// Set robot's known pose (useful for start-of-run initialization)
+void setPose(float x, float y, float facingDeg) {
+  g_posX = x;
+  g_posY = y;
+  g_facingDeg = facingDeg;
+  while (g_facingDeg <   0.0f) g_facingDeg += 360.0f;
+  while (g_facingDeg > 360.0f) g_facingDeg -= 360.0f;
+}
+
 static float deltaWrappedDeg(float prevDeg, float nowDeg) {
   float d = nowDeg - prevDeg;
   if (d >  180.0f) d -= 360.0f;
@@ -93,52 +127,24 @@ static float deltaWrappedDeg(float prevDeg, float nowDeg) {
   return d;
 }
 
-static float crossTrackError(float startX, float startY, float intendedDeg) {
-  float intendedRad = intendedDeg * PI / 180.0f;
-  float dx = g_posX - startX;
-  float dy = g_posY - startY;
-  return dx * cos(intendedRad) - dy * sin(intendedRad);
-}
-
 static void normalizeFacing() {
   while (g_facingDeg <   0.0f) g_facingDeg += 360.0f;
   while (g_facingDeg > 360.0f) g_facingDeg -= 360.0f;
 }
 
-static int velocityPI(float err, float &integrator, float kp, float ki,
-                      float dt, int maxPWM, int polarity) {
-  int pwm;
-  if (polarity > 0) {
-    pwm = constrain((int)(kp * err + ki * integrator), 0, maxPWM);
-    bool satHi = (pwm >= maxPWM && err > 0);
-    bool satLo = (pwm <= 0      && err < 0);
-    if (!satHi && !satLo) {
-      integrator = constrain(integrator + err * dt, -30.0f, 30.0f);
-      pwm = constrain((int)(kp * err + ki * integrator), 0, maxPWM);
-    }
-  } else {
-    pwm = constrain(-(int)(kp * err + ki * integrator), -maxPWM, 0);
-    bool satHi = (pwm <= -maxPWM && err > 0);
-    bool satLo = (pwm >= 0       && err < 0);
-    if (!satHi && !satLo) {
-      integrator = constrain(integrator + err * dt, -30.0f, 30.0f);
-      pwm = constrain(-(int)(kp * err + ki * integrator), -maxPWM, 0);
-    }
-  }
-  return pwm;
-}
-
 // ===================== MOVE FORWARD =====================
 void moveForwardCM(float targetCM) {
-  const MotionProfile &P = PROFILE_DRIVE;
+  if (targetCM <= 0.1f) return;  // nothing to do
 
-  const float WHEEL_DIAMETER_CM  = 6.9f;
-  const float WHEEL_CIRC_CM      = PI * WHEEL_DIAMETER_CM;
-  const unsigned long TIMEOUT_MS = 15000;
+  delay(BIAS_SETTLE_MS);
+  refreshGyroBias(80);
+
+  const MotionProfile &P = PROFILE_DRIVE;
+  const unsigned long TIMEOUT_MS = 5000;
 
   const int BASE_PWM = 70;
-  const float KP_HEAD = 2.5f;
-  const float KD_HEAD = 0.3f;
+  const float KP_HEAD = 2.0f;
+  const float KD_HEAD = 0.0f;
 
   setMotors(P.kickPWM, P.kickPWM);
   delay(P.kickMs);
@@ -188,7 +194,7 @@ void moveForwardCM(float targetCM) {
 
     float dDistSigned = 0.5f * (dLs + dRs) / 360.0f * WHEEL_CIRC_CM;
     float facingRad = g_facingDeg * PI / 180.0f;
-    g_posX += dDistSigned * sin(facingRad);
+    g_posX += X_AXIS_SIGN * dDistSigned * sin(facingRad);
     g_posY += dDistSigned * cos(facingRad);
 
     if (avgDist >= targetCM) break;
@@ -198,6 +204,7 @@ void moveForwardCM(float targetCM) {
     int basePWM = BASE_PWM;
     if (remaining < 10.0f) basePWM = (int)(BASE_PWM * 0.7f);
     if (remaining < 4.0f)  basePWM = (int)(BASE_PWM * 0.5f);
+    if (basePWM < 45) basePWM = 45;
 
     float headErr = headingDeg;
     float dHeadErr = (headErr - prevHeadErr) / dt;
@@ -219,10 +226,9 @@ void moveForwardCM(float targetCM) {
   float actualDist = 0.5f * (lDist + rDist);
   g_totalDistError += (targetCM - actualDist);
 
-  // Left trim: left motor brakes too hard, reduce its magnitude by 3
-  setMotors(-BRAKE_PWM_HARD + 8, -BRAKE_PWM_HARD);
+  setMotors(-BRAKE_PWM_HARD + 6, -BRAKE_PWM_HARD);
   delay(BRAKE_MS_HARD);
-  setMotors(-BRAKE_PWM_HOLD + 3, -BRAKE_PWM_HOLD);
+  setMotors(-BRAKE_PWM_HOLD + 2, -BRAKE_PWM_HOLD);
   delay(BRAKE_MS_HOLD);
   setMotors(0, 0);
   resetRamp();
@@ -232,14 +238,16 @@ void moveForwardCM(float targetCM) {
 
 // ===================== MOVE BACKWARD =====================
 void moveBackwardCM(float targetCM) {
-  const MotionProfile &P = PROFILE_DRIVE;
+  if (targetCM <= 0.1f) return;
 
-  const float WHEEL_DIAMETER_CM  = 6.9f;
-  const float WHEEL_CIRC_CM      = PI * WHEEL_DIAMETER_CM;
-  const unsigned long TIMEOUT_MS = 15000;
+  delay(BIAS_SETTLE_MS);
+  refreshGyroBias(80);
+
+  const MotionProfile &P = PROFILE_DRIVE;
+  const unsigned long TIMEOUT_MS = 5000;
 
   const int BASE_PWM = 70;
-  const float KP_HEAD = 5.5f;
+  const float KP_HEAD = 5.0f;
   const float KD_HEAD = 0.3f;
 
   setMotors(-P.kickPWM, -P.kickPWM);
@@ -290,7 +298,7 @@ void moveBackwardCM(float targetCM) {
 
     float dDistSigned = 0.5f * (dLs + dRs) / 360.0f * WHEEL_CIRC_CM;
     float facingRad = g_facingDeg * PI / 180.0f;
-    g_posX += dDistSigned * sin(facingRad);
+    g_posX += X_AXIS_SIGN * dDistSigned * sin(facingRad);
     g_posY += dDistSigned * cos(facingRad);
 
     if (avgDist >= targetCM) break;
@@ -300,6 +308,7 @@ void moveBackwardCM(float targetCM) {
     int basePWM = BASE_PWM;
     if (remaining < 10.0f) basePWM = (int)(BASE_PWM * 0.7f);
     if (remaining < 4.0f)  basePWM = (int)(BASE_PWM * 0.5f);
+    if (basePWM < 45) basePWM = 45;
 
     float headErr = headingDeg;
     float dHeadErr = (headErr - prevHeadErr) / dt;
@@ -308,7 +317,6 @@ void moveBackwardCM(float targetCM) {
     float corr = KP_HEAD * headErr + KD_HEAD * dHeadErr;
     corr = constrain(corr, -40.0f, 40.0f);
 
-    // FLIPPED SIGNS — this fixes the CW U-turn
     int leftPWM  = -basePWM + (int)corr;
     int rightPWM = -basePWM - (int)corr;
 
@@ -319,10 +327,10 @@ void moveBackwardCM(float targetCM) {
     delay(10);
   }
 
-  setMotors(BRAKE_PWM_HARD, BRAKE_PWM_HARD - 10);
+  setMotors(BRAKE_PWM_HARD, BRAKE_PWM_HARD - 4);
   delay(BRAKE_MS_HARD);
-  setMotors(BRAKE_PWM_HOLD, BRAKE_PWM_HOLD - 10);
-  delay(BRAKE_MS_HOLD + 50);
+  setMotors(BRAKE_PWM_HOLD, BRAKE_PWM_HOLD - 2);
+  delay(BRAKE_MS_HOLD);
   setMotors(0, 0);
   resetRamp();
   stopMotorsHard();
@@ -347,6 +355,11 @@ static void updateHeadingTick(float &headingDeg, unsigned long &lastT) {
 }
 
 static void turnDeg(float targetDeg, int direction) {
+  if (targetDeg <= 0.1f) return;
+
+  delay(BIAS_SETTLE_MS);
+  refreshGyroBias(100);
+
   const MotionProfile &P = g_hasBottle ? PROFILE_TURN_BOTTLE : PROFILE_TURN_EMPTY;
 
   const unsigned long TIMEOUT_MS = 8000;
@@ -355,7 +368,6 @@ static void turnDeg(float targetDeg, int direction) {
   unsigned long lastT = millis();
   unsigned long t0;
 
-  // Kick phase — raw setMotors, no smart wrapper
   unsigned long kickStart = millis();
   while (millis() - kickStart < (unsigned long)P.kickMs) {
     updateHeadingTick(headingDeg, lastT);
@@ -371,7 +383,6 @@ static void turnDeg(float targetDeg, int direction) {
 
     if (fabs(headingDeg) >= targetDeg - P.turnExitEarly) break;
     if (millis() - t0 > TIMEOUT_MS) {
-      Serial.println(direction > 0 ? F("TL TIMEOUT") : F("TR TIMEOUT"));
       break;
     }
 
@@ -385,7 +396,6 @@ static void turnDeg(float targetDeg, int direction) {
     delay(5);
   }
 
-  // Real counter-brake — above DEAD_PWM so motors actually respond
   setMotors(direction * 25, -direction * 25);
   unsigned long brakeStart = millis();
   while (millis() - brakeStart < 40) {
@@ -402,15 +412,6 @@ static void turnDeg(float targetDeg, int direction) {
 
   resetRamp();
   stopMotorsHard();
-
-  Serial.print(F("Turn done. Target: "));
-  Serial.print(targetDeg, 1);
-  Serial.print(F("  Got: "));
-  Serial.print(fabs(headingDeg), 1);
-  Serial.print(F("  Error: "));
-  Serial.print(targetDeg - fabs(headingDeg), 1);
-  Serial.print(F("  Facing: "));
-  Serial.println(g_facingDeg, 1);
 }
 
 void turnLeftDeg(float targetDeg)  { turnDeg(targetDeg, +1); }
