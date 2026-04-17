@@ -32,7 +32,7 @@ void waitForStartButton() {
   Serial.println(F("Starting!"));
 }
 
-const char* program = "fn50 rn90 fn50";
+const char* program = "fn50 rn90 fn50 bn50 ln90 bn50";
 
 void setup() {
   Serial.begin(9600);
@@ -63,7 +63,7 @@ void loop() {
 
   calibrateGyroZ(3000);
 
-  startRunTimer(30.0f);
+  startRunTimer(15.0f);
   runProgramTimed(program);
 
   Serial.print(F("Total time: ")); Serial.println(elapsedRunSec(), 3);

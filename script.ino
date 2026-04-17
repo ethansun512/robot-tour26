@@ -18,8 +18,20 @@ bool isCmdLetter(char c) {
 
 int countCommands(const char* cmd) {
   int count = 0;
-  for (int i = 0; cmd[i] != '\0'; i++) {
-    if (isCmdLetter(cmd[i])) count++;
+  int i = 0;
+  while (cmd[i] != '\0') {
+    while (cmd[i] == ' ') i++;
+    if (cmd[i] == '\0') break;
+    if (isCmdLetter(cmd[i])) {
+      count++;
+      i++;
+      // Skip optional bottle/empty modifier
+      if (cmd[i] == 'b' || cmd[i] == 'n') i++;
+      // Skip number
+      while (isDigit(cmd[i]) || cmd[i] == '.') i++;
+    } else {
+      i++;  // skip unknown char
+    }
   }
   return count;
 }

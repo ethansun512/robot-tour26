@@ -49,7 +49,7 @@ void initIMU() {
   }
 }
 
-// Returns gyroZ in rad/s (so your print label is true)
+// Returns gyroZ in deg (so your print label is true)
 void readIMU(float &gyroZ) {
   if (!imuOK) {
     gyroZ = 0.0f;
